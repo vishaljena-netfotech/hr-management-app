@@ -96,9 +96,21 @@ async function createTables(pool) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS policy_acknowledgments (
       id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id),
+      user_id TEXT NOT NULL,
       policy_id TEXT NOT NULL REFERENCES policies(id),
       acknowledged_at TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS communication_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      subject TEXT,
+      message TEXT,
+      created_by TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
 

@@ -56,6 +56,54 @@ module.exports = (app, db) => {
     }
   });
 
+  // Get all users (used by Dashboard and User Management). Never returns password hashes.
+  app.get('/api/users', async (req, res) => {
+    try {
+      const { rows } = await db.query(
+        'SELECT id, email, name, role, department, created_at, updated_at FROM users ORDER BY created_at DESC'
+      );
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update user
+  app.put('/api/users/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, email, role, department, password } = req.body;
+
+      if (password) {
+        const hashedPassword = bcrypt.hashSync(password, 10);
+        await db.query(
+          `UPDATE users SET name = $1, email = $2, role = $3, department = $4, password = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6`,
+          [name, email, role, department, hashedPassword, id]
+        );
+      } else {
+        await db.query(
+          `UPDATE users SET name = $1, email = $2, role = $3, department = $4, updated_at = CURRENT_TIMESTAMP WHERE id = $5`,
+          [name, email, role, department, id]
+        );
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete user
+  app.delete('/api/users/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      await db.query('DELETE FROM users WHERE id = $1', [id]);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ==================== CANDIDATE ROUTES ====================
 
   // Get all candidates
@@ -63,6 +111,20 @@ module.exports = (app, db) => {
     try {
       const { rows } = await db.query('SELECT * FROM candidates ORDER BY created_at DESC');
       res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get single candidate
+  app.get('/api/candidates/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { rows } = await db.query('SELECT * FROM candidates WHERE id = $1', [id]);
+      if (!rows[0]) {
+        return res.status(404).json({ error: 'Candidate not found' });
+      }
+      res.json(rows[0]);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -157,6 +219,22 @@ module.exports = (app, db) => {
 
   // ==================== OFFER LETTER ROUTES ====================
 
+  // Get all offer letters (used by Dashboard). Supports ?candidateId= filter.
+  app.get('/api/offer-letters', async (req, res) => {
+    try {
+      const { candidateId } = req.query;
+      const { rows } = candidateId
+        ? await db.query(
+            'SELECT * FROM offer_letters WHERE candidate_id = $1 ORDER BY generated_at DESC',
+            [candidateId]
+          )
+        : await db.query('SELECT * FROM offer_letters ORDER BY generated_at DESC');
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Create offer letter
   app.post('/api/offer-letters', async (req, res) => {
     try {
@@ -225,6 +303,17 @@ module.exports = (app, db) => {
     }
   });
 
+  // Mark offer letter as sent (email dispatch is out of scope here - this just records the send)
+  app.post('/api/offer-letters/:id/send', async (req, res) => {
+    try {
+      const { id } = req.params;
+      await db.query(`UPDATE offer_letters SET sent_at = CURRENT_TIMESTAMP WHERE id = $1`, [id]);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ==================== SALARY STRUCTURE ROUTES ====================
 
   // Create salary structure
@@ -259,6 +348,16 @@ module.exports = (app, db) => {
       );
 
       res.json({ success: true, salaryId });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get all salary structures
+  app.get('/api/salary-structures', async (req, res) => {
+    try {
+      const { rows } = await db.query('SELECT * FROM salary_structures ORDER BY created_at DESC');
+      res.json(rows);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -299,6 +398,24 @@ module.exports = (app, db) => {
       );
 
       res.json({ success: true, policyId });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Acknowledge a policy
+  app.post('/api/policy-acknowledgments', async (req, res) => {
+    try {
+      const { candidateId, userId, policyId } = req.body;
+      const ackId = uuidv4();
+
+      await db.query(
+        `INSERT INTO policy_acknowledgments (id, user_id, policy_id, acknowledged_at)
+         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+        [ackId, candidateId || userId, policyId]
+      );
+
+      res.json({ success: true, ackId });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -392,7 +509,22 @@ module.exports = (app, db) => {
     }
   });
 
-  // Get communication logs
+  // Get communication logs. /api/communications (all, optional ?candidateId=) or /api/communications/:candidateId
+  app.get('/api/communications', async (req, res) => {
+    try {
+      const { candidateId } = req.query;
+      const { rows } = candidateId
+        ? await db.query(
+            'SELECT * FROM communication_logs WHERE candidate_id = $1 ORDER BY sent_at DESC',
+            [candidateId]
+          )
+        : await db.query('SELECT * FROM communication_logs ORDER BY sent_at DESC');
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get('/api/communications/:candidateId', async (req, res) => {
     try {
       const { candidateId } = req.params;
@@ -401,6 +533,33 @@ module.exports = (app, db) => {
         [candidateId]
       );
       res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Communication templates
+  app.get('/api/communication-templates', async (req, res) => {
+    try {
+      const { rows } = await db.query('SELECT * FROM communication_templates ORDER BY created_at DESC');
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/communication-templates', async (req, res) => {
+    try {
+      const { name, type, subject, message, createdBy } = req.body;
+      const templateId = uuidv4();
+
+      await db.query(
+        `INSERT INTO communication_templates (id, name, type, subject, message, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [templateId, name, type, subject, message, createdBy]
+      );
+
+      res.json({ success: true, templateId });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
