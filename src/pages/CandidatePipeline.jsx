@@ -205,7 +205,7 @@ function CandidatePipeline({ user }) {
                       {candidate.hiring_status}
                     </span>
                   </td>
-                  <td>{new Date(candidate.applied_at).toLocaleDateString()}</td>
+                  <td>{candidate.created_at ? new Date(candidate.created_at).toLocaleDateString() : '—'}</td>
                   <td>
                     {canSubmitFeedback && (
                       <button
